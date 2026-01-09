@@ -130,11 +130,23 @@ export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
         setMessages(prev => [...prev, { role: 'model', text: response.text }]);
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generating response:", error);
+      
+      let errorMessage = "I apologize, but I'm having trouble connecting to my knowledge base right now. Please try again or book a call for a direct conversation.";
+      
+      // Check for 403 Permission Denied (often due to domain restrictions)
+      if (error.status === 403 || (error.message && error.message.includes('403'))) {
+        errorMessage = "Access Denied: The API key is restricted. Please check your Google Cloud Console Credentials and ensure this domain (localhost or your-site.vercel.app) is added to the 'Website restrictions' list.";
+      }
+      // Check for 404 Model Not Found
+      else if (error.status === 404 || (error.message && error.message.includes('404'))) {
+        errorMessage = "Configuration Error: The AI model specified is not available. Please contact support.";
+      }
+
       setMessages(prev => [...prev, { 
         role: 'model', 
-        text: "I apologize, but I'm having trouble connecting to my knowledge base right now. Please try again or book a call for a direct conversation." 
+        text: errorMessage
       }]);
     } finally {
       setIsLoading(false);
