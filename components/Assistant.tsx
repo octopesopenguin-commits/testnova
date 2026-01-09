@@ -14,6 +14,37 @@ interface Message {
   text: string;
 }
 
+// Helper to safely get API Key from various environment configurations
+const getApiKey = () => {
+  // 1. Try standard process.env (Next.js, CRA, Node)
+  try {
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env) {
+      // @ts-ignore
+      if (process.env.API_KEY) return process.env.API_KEY;
+      // @ts-ignore
+      if (process.env.NEXT_PUBLIC_API_KEY) return process.env.NEXT_PUBLIC_API_KEY;
+    }
+  } catch (e) {
+    // Ignore errors accessing process
+  }
+
+  // 2. Try Vite import.meta.env
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
+      // @ts-ignore
+      if (import.meta.env.API_KEY) return import.meta.env.API_KEY;
+    }
+  } catch (e) {
+    // Ignore errors accessing import.meta
+  }
+
+  return '';
+};
+
 export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -25,13 +56,12 @@ export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
   const aiClientRef = useRef<GoogleGenAI | null>(null);
   
   useEffect(() => {
-    // In a real env, process.env.API_KEY is injected.
-    // If running locally without env, this might fail, so we handle gracefully.
     try {
-      if (process.env.API_KEY) {
-        aiClientRef.current = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = getApiKey();
+      if (apiKey) {
+        aiClientRef.current = new GoogleGenAI({ apiKey: apiKey });
       } else {
-        console.warn("API_KEY not found in environment variables.");
+        console.warn("API_KEY not found in environment variables. Please check .env settings.");
       }
     } catch (e) {
       console.error("Failed to initialize Gemini client", e);
@@ -81,10 +111,6 @@ export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
       `;
 
       // Construct history for context
-      // We only send the last few turns to keep context tight, or map all previous messages
-      // For simplicity in this demo, we'll use a single generateContent call with history simulated or just the prompt if it's a simple Q&A.
-      // However, for a true chat, we should use chat.sendMessage. Let's use chat.
-      
       const chat = aiClientRef.current.chats.create({
         model: 'gemini-2.5-flash-latest', // High speed for interactive chat
         config: {
