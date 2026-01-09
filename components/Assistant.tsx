@@ -112,7 +112,7 @@ export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
 
       // Construct history for context
       const chat = aiClientRef.current.chats.create({
-        model: 'gemini-2.5-flash-latest', // High speed for interactive chat
+        model: 'gemini-3-flash-preview', 
         config: {
           systemInstruction: systemInstruction,
         },
