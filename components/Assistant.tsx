@@ -1,6 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { LEAD_MAGNET_TITLE, ResultCategory } from '../types';
+import { ResultCategory } from '../types';
 import { getResultDescription } from '../utils/scoring';
 import { Button } from './Button';
 
@@ -14,59 +14,11 @@ interface Message {
   text: string;
 }
 
-// Helper to safely get API Key from various environment configurations
-const getApiKey = () => {
-  // 1. Try standard process.env (Next.js, CRA, Node)
-  try {
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env) {
-      // @ts-ignore
-      if (process.env.API_KEY) return process.env.API_KEY;
-      // @ts-ignore
-      if (process.env.NEXT_PUBLIC_API_KEY) return process.env.NEXT_PUBLIC_API_KEY;
-    }
-  } catch (e) {
-    // Ignore errors accessing process
-  }
-
-  // 2. Try Vite import.meta.env
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // @ts-ignore
-      if (import.meta.env.VITE_API_KEY) return import.meta.env.VITE_API_KEY;
-      // @ts-ignore
-      if (import.meta.env.API_KEY) return import.meta.env.API_KEY;
-    }
-  } catch (e) {
-    // Ignore errors accessing import.meta
-  }
-
-  return '';
-};
-
 export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Initialize Gemini Client
-  // Using a ref to hold the client instance to avoid recreation
-  const aiClientRef = useRef<GoogleGenAI | null>(null);
-  
-  useEffect(() => {
-    try {
-      const apiKey = getApiKey();
-      if (apiKey) {
-        aiClientRef.current = new GoogleGenAI({ apiKey: apiKey });
-      } else {
-        console.warn("API_KEY not found in environment variables. Please check .env settings.");
-      }
-    } catch (e) {
-      console.error("Failed to initialize Gemini client", e);
-    }
-  }, []);
 
   useEffect(() => {
     // Initial greeting based on result
@@ -82,66 +34,42 @@ export const Assistant: React.FC<AssistantProps> = ({ result, onClose }) => {
     if (!inputValue.trim() || isLoading) return;
 
     const userMessage = inputValue.trim();
+    const currentHistory = [...messages];
+    
     setInputValue('');
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
     setIsLoading(true);
 
     try {
-      if (!aiClientRef.current) {
-        throw new Error("AI Client not initialized (Missing API Key?)");
-      }
-
-      const systemInstruction = `
-        You are an elite, concierge-style consultant for NovaMentors.
-        The user has just completed the "${LEAD_MAGNET_TITLE}" and received the result: "${result}".
-        
-        Your Goal:
-        1. Explain the result with professional, executive-level language.
-        2. Help the user understand the implications of this bottleneck.
-        3. Gently encourage them to book a call with the main consultant if the problem seems complex.
-        
-        Tone Constraints:
-        - Professional, calm, elite.
-        - NO legal or HR advice.
-        - NO guaranteed results.
-        - Be concise but insightful.
-        
-        History:
-        The user has already been told their result is ${result}.
-      `;
-
-      // Construct history for context
-      const chat = aiClientRef.current.chats.create({
-        model: 'gemini-3-flash-preview', 
-        config: {
-          systemInstruction: systemInstruction,
+      const response = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        history: messages.map(m => ({
-          role: m.role,
-          parts: [{ text: m.text }]
-        }))
+        body: JSON.stringify({
+          message: userMessage,
+          history: currentHistory,
+          result: result
+        }),
       });
 
-      const response = await chat.sendMessage({
-        message: userMessage
-      });
+      const data = await response.json();
 
-      if (response.text) {
-        setMessages(prev => [...prev, { role: 'model', text: response.text }]);
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch response');
       }
 
+      if (data.text) {
+        setMessages(prev => [...prev, { role: 'model', text: data.text }]);
+      }
     } catch (error: any) {
-      console.error("Error generating response:", error);
+      console.error("Error communicating with assistant:", error);
       
       let errorMessage = "I apologize, but I'm having trouble connecting to my knowledge base right now. Please try again or book a call for a direct conversation.";
       
-      // Check for 403 Permission Denied (often due to domain restrictions)
-      if (error.status === 403 || (error.message && error.message.includes('403'))) {
-        errorMessage = "Access Denied: The API key is restricted. Please check your Google Cloud Console Credentials and ensure this domain (localhost or your-site.vercel.app) is added to the 'Website restrictions' list.";
-      }
-      // Check for 404 Model Not Found
-      else if (error.status === 404 || (error.message && error.message.includes('404'))) {
-        errorMessage = "Configuration Error: The AI model specified is not available. Please contact support.";
+      // Handle specific error cases forwarded from the backend
+      if (error.message && error.message.includes('403')) {
+        errorMessage = "Access Denied: The server's API key is restricted or invalid. Please ensure the Vercel environment variable 'API_KEY' is set correctly and restricted to the correct domains.";
       }
 
       setMessages(prev => [...prev, { 
